@@ -77,6 +77,7 @@ jobs:
         EMAIL_USER: ${{ secrets.EMAIL_USER }}
         EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
         EMAIL_TO: ${{ secrets.EMAIL_TO }}
+        EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
         CUSTOM_SMTP_SERVER: ${{ secrets.CUSTOM_SMTP_SERVER }}
         PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
         SERVERPUSHKEY: ${{ secrets.SERVERPUSHKEY }}
@@ -87,6 +88,8 @@ jobs:
         GOTIFY_URL: ${{ secrets.GOTIFY_URL }}
         GOTIFY_TOKEN: ${{ secrets.GOTIFY_TOKEN }}
         GOTIFY_PRIORITY: ${{ secrets.GOTIFY_PRIORITY }}
+        BARK_KEY: ${{ secrets.BARK_KEY }}
+        BARK_SERVER: ${{ secrets.BARK_SERVER }}
       run: |
         uv run checkin.py
 

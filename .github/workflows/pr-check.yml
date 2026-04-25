@@ -1,0 +1,262 @@
+name: PR Quality Checks
+
+on:
+  pull_request:
+    branches: [main, master, workflow]
+  push:
+    branches: [workflow]
+
+jobs:
+  quality-checks:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 缓存 UV 依赖
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/uv
+            .venv
+          key: ${{ runner.os }}-uv-dev-${{ hashFiles('pyproject.toml', 'uv.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-dev-
+
+      - name: 安装依赖
+        run: |
+          uv sync --dev
+
+      - name: 代码风格检查 (Ruff Lint)
+        id: ruff-lint
+        continue-on-error: true
+        run: |
+          echo "## Ruff Lint 检查" >> $GITHUB_STEP_SUMMARY
+          uv run ruff check . --output-format=github 2>&1 | tee ruff-lint.log
+          if [ $? -eq 0 ]; then
+            echo "✅ 代码风格检查通过" >> $GITHUB_STEP_SUMMARY
+            echo "status=success" >> $GITHUB_OUTPUT
+          else
+            echo "❌ 代码风格检查失败，请查看详细日志" >> $GITHUB_STEP_SUMMARY
+            echo "status=failure" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 代码格式检查 (Ruff Format)
+        id: ruff-format
+        continue-on-error: true
+        run: |
+          echo "## Ruff Format 检查" >> $GITHUB_STEP_SUMMARY
+          uv run ruff format --check . 2>&1 | tee ruff-format.log
+          if [ $? -eq 0 ]; then
+            echo "✅ 代码格式检查通过" >> $GITHUB_STEP_SUMMARY
+            echo "status=success" >> $GITHUB_OUTPUT
+          else
+            echo "❌ 代码格式检查失败，请运行 \`ruff format .\`" >> $GITHUB_STEP_SUMMARY
+            echo "status=failure" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 类型检查 (MyPy)
+        id: mypy
+        continue-on-error: true
+        run: |
+          echo "## MyPy 类型检查" >> $GITHUB_STEP_SUMMARY
+          uv run mypy . --ignore-missing-imports 2>&1 | tee mypy.log
+          if [ $? -eq 0 ]; then
+            echo "✅ 类型检查通过" >> $GITHUB_STEP_SUMMARY
+            echo "status=success" >> $GITHUB_OUTPUT
+          else
+            echo "❌ 类型检查失败，请查看详细日志" >> $GITHUB_STEP_SUMMARY
+            echo "status=failure" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 安全扫描 (Bandit)
+        id: bandit
+        continue-on-error: true
+        run: |
+          echo "## Bandit 安全扫描" >> $GITHUB_STEP_SUMMARY
+          uv run bandit -r . -c pyproject.toml -f json -o bandit-report.json
+          uv run bandit -r . -c pyproject.toml 2>&1 | tee bandit.log
+          if [ $? -eq 0 ]; then
+            echo "✅ 安全扫描通过" >> $GITHUB_STEP_SUMMARY
+            echo "status=success" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ 发现潜在安全问题，请查看详细日志" >> $GITHUB_STEP_SUMMARY
+            echo "status=warning" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 运行测试 (Pytest)
+        id: pytest
+        continue-on-error: true
+        run: |
+          echo "## Pytest 测试" >> $GITHUB_STEP_SUMMARY
+          uv run pytest tests/ -v --cov=. --cov-report=term --cov-report=xml --cov-report=html 2>&1 | tee pytest.log
+          if [ $? -eq 0 ]; then
+            echo "✅ 所有测试通过" >> $GITHUB_STEP_SUMMARY
+            echo "status=success" >> $GITHUB_OUTPUT
+          else
+            echo "❌ 测试失败，请查看详细日志" >> $GITHUB_STEP_SUMMARY
+            echo "status=failure" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 上传覆盖率到 Codecov
+        if: always()
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: codecov-anyrouter-check-in
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: 生成检查报告
+        if: always()
+        id: generate-report
+        run: |
+          echo "REPORT<<EOF" >> $GITHUB_OUTPUT
+          echo "# 🔍 PR 代码质量检查报告" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "## 检查结果总览" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+
+          # Ruff Lint
+          if [ "${{ steps.ruff-lint.outputs.status }}" == "success" ]; then
+            echo "✅ **代码风格检查 (Ruff Lint)**: 通过" >> $GITHUB_OUTPUT
+          else
+            echo "❌ **代码风格检查 (Ruff Lint)**: 失败" >> $GITHUB_OUTPUT
+          fi
+
+          # Ruff Format
+          if [ "${{ steps.ruff-format.outputs.status }}" == "success" ]; then
+            echo "✅ **代码格式检查 (Ruff Format)**: 通过" >> $GITHUB_OUTPUT
+          else
+            echo "❌ **代码格式检查 (Ruff Format)**: 失败" >> $GITHUB_OUTPUT
+          fi
+
+          # MyPy
+          if [ "${{ steps.mypy.outputs.status }}" == "success" ]; then
+            echo "✅ **类型检查 (MyPy)**: 通过" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ **类型检查 (MyPy)**: 失败" >> $GITHUB_OUTPUT
+          fi
+
+          # Bandit
+          if [ "${{ steps.bandit.outputs.status }}" == "success" ]; then
+            echo "✅ **安全扫描 (Bandit)**: 通过" >> $GITHUB_OUTPUT
+          elif [ "${{ steps.bandit.outputs.status }}" == "warning" ]; then
+            echo "⚠️ **安全扫描 (Bandit)**: 发现警告" >> $GITHUB_OUTPUT
+          else
+            echo "❌ **安全扫描 (Bandit)**: 失败" >> $GITHUB_OUTPUT
+          fi
+
+          # Pytest
+          if [ "${{ steps.pytest.outputs.status }}" == "success" ]; then
+            echo "✅ **测试 (Pytest)**: 通过" >> $GITHUB_OUTPUT
+          else
+            echo "❌ **测试 (Pytest)**: 失败" >> $GITHUB_OUTPUT
+          fi
+
+          echo "" >> $GITHUB_OUTPUT
+          echo "## 📊 测试覆盖率" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "详细覆盖率报告将由 Codecov 自动发布。" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "## 🔧 修复建议" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+
+          if [ "${{ steps.ruff-lint.outputs.status }}" != "success" ] || [ "${{ steps.ruff-format.outputs.status }}" != "success" ]; then
+            echo "### 代码风格问题" >> $GITHUB_OUTPUT
+            echo "运行以下命令自动修复：" >> $GITHUB_OUTPUT
+            echo '```bash' >> $GITHUB_OUTPUT
+            echo "uv run ruff check . --fix" >> $GITHUB_OUTPUT
+            echo "uv run ruff format ." >> $GITHUB_OUTPUT
+            echo '```' >> $GITHUB_OUTPUT
+            echo "" >> $GITHUB_OUTPUT
+          fi
+
+          if [ "${{ steps.mypy.outputs.status }}" != "success" ]; then
+            echo "### 类型检查问题" >> $GITHUB_OUTPUT
+            echo "请根据 MyPy 输出添加或修正类型注解。" >> $GITHUB_OUTPUT
+            echo "" >> $GITHUB_OUTPUT
+          fi
+
+          if [ "${{ steps.pytest.outputs.status }}" != "success" ]; then
+            echo "### 测试失败" >> $GITHUB_OUTPUT
+            echo "请检查测试日志并修复失败的测试用例。" >> $GITHUB_OUTPUT
+            echo "" >> $GITHUB_OUTPUT
+          fi
+
+          echo "---" >> $GITHUB_OUTPUT
+          echo "*本报告由 GitHub Actions 自动生成*" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: 发布检查报告到 PR
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const report = `${{ steps.generate-report.outputs.REPORT }}`;
+
+            // 查找之前的评论
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('PR 代码质量检查报告')
+            );
+
+            if (botComment) {
+              // 更新已存在的评论
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: report
+              });
+            } else {
+              // 创建新评论
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: report
+              });
+            }
+
+      - name: 最终状态检查
+        if: always()
+        run: |
+          if [ "${{ steps.ruff-lint.outputs.status }}" != "success" ] || \
+             [ "${{ steps.ruff-format.outputs.status }}" != "success" ] || \
+             [ "${{ steps.pytest.outputs.status }}" != "success" ]; then
+            echo "❌ 质量检查未通过"
+            exit 1
+          fi
+
+          if [ "${{ steps.mypy.outputs.status }}" != "success" ]; then
+            echo "⚠️ 类型检查有警告，但不阻止 PR 合并"
+          fi
+
+          if [ "${{ steps.bandit.outputs.status }}" == "warning" ]; then
+            echo "⚠️ 安全扫描有警告，但不阻止 PR 合并"
+          fi
+
+          echo "✅ 关键质量检查通过"

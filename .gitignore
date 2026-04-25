@@ -4,4 +4,7 @@
 __pycache__
 .pytest_cache
 .ruff_cache
+.mypy_cache
 balance_hash.txt
+
+.DS_Store

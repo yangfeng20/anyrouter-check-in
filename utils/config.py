@@ -26,13 +26,13 @@ class ProviderConfig:
 		required_waf_cookies = set()
 		if self.waf_cookie_names and isinstance(self.waf_cookie_names, List):
 			for item in self.waf_cookie_names:
-				name = "" if not item or not isinstance(item, str) else item.strip()
+				name = '' if not item or not isinstance(item, str) else item.strip()
 				if not name:
 					print(f'[WARNING] Found invalid WAF cookie name: {item}')
 					continue
 
 				required_waf_cookies.add(name)
-		
+
 		if not required_waf_cookies:
 			self.bypass_method = None
 
@@ -54,7 +54,7 @@ class ProviderConfig:
 			user_info_path=data.get('user_info_path', '/api/user/self'),
 			api_user_key=data.get('api_user_key', 'new-api-user'),
 			bypass_method=data.get('bypass_method'),
-			waf_cookie_names = data.get('waf_cookie_names'),
+			waf_cookie_names=data.get('waf_cookie_names'),
 		)
 
 	def needs_waf_cookies(self) -> bool:
@@ -63,7 +63,7 @@ class ProviderConfig:
 
 	def needs_manual_check_in(self) -> bool:
 		"""判断是否需要手动调用签到接口"""
-		return self.bypass_method == 'waf_cookies'
+		return self.sign_in_path is not None
 
 
 @dataclass
